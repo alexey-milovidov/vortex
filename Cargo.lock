@@ -11706,7 +11706,6 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
- "vortex-functions",
  "vortex-session",
  "vortex-utils",
 ]
@@ -11863,6 +11862,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-expr",
  "vortex-mask",
  "vortex-session",
  "vortex-utils",
