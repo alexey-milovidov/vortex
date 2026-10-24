@@ -90,6 +90,7 @@ rstest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
 test-with = { workspace = true }
+vortex-aggregates = { path = "../vortex-aggregates" }
 vortex-array = { path = ".", features = [
     "_test-harness",
     "table-display",
@@ -98,14 +99,6 @@ vortex-array = { path = ".", features = [
 vortex-bench-support = { workspace = true }
 # Path-only to avoid a publish cycle with vortex-functions -> vortex-array.
 vortex-functions = { path = "../vortex-functions" }
-
-[[bench]]
-name = "aggregate_max"
-harness = false
-
-[[bench]]
-name = "aggregate_sum"
-harness = false
 
 [[bench]]
 name = "cast_primitive"
