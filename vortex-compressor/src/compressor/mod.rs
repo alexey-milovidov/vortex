@@ -5,12 +5,16 @@
 
 mod cascade;
 mod constant;
+pub(crate) mod plan;
+mod reuse;
 mod sample;
 mod select;
 mod structural;
 
 pub(crate) use cascade::TrialOutput;
 pub(crate) use cascade::exact_uncompressed_size;
+pub use reuse::PlanReuse;
+pub use reuse::PlanReuseOptions;
 pub(crate) use sample::estimate_compression_ratio_with_sampling;
 pub use sample::sample_aligned_chunks;
 pub(crate) use sample::sample_slices;
