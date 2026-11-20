@@ -25,6 +25,8 @@ pub mod between;
 pub mod builtins;
 pub mod byte_length;
 pub mod case_when;
+pub mod change_time_unit;
+pub mod convert_time_zone;
 pub mod dynamic;
 pub mod dynamic_expression;
 pub mod expr;
@@ -42,6 +44,8 @@ pub mod merge;
 pub mod replace_time_zone;
 pub mod stat;
 pub mod strpos;
+pub mod timestamp_to_date;
+pub mod timestamp_to_time;
 pub mod variant_get;
 pub mod zip;
 
@@ -59,6 +63,8 @@ pub fn initialize(session: &VortexSession) {
     let scalar_fns = session.scalar_fns();
     scalar_fns.register(byte_length::ByteLength);
     scalar_fns.register(case_when::CaseWhen);
+    scalar_fns.register(change_time_unit::ChangeTimeUnit);
+    scalar_fns.register(convert_time_zone::ConvertTimeZone);
     scalar_fns.register(ext_storage::ExtStorage);
     scalar_fns.register(is_nan::IsNan);
     scalar_fns.register(list_length::ListLength);
@@ -68,6 +74,8 @@ pub fn initialize(session: &VortexSession) {
     scalar_fns.register(replace_time_zone::ReplaceTimeZone);
     scalar_fns.register(stat::StatFn);
     scalar_fns.register(strpos::Strpos);
+    scalar_fns.register(timestamp_to_date::TimestampToDate);
+    scalar_fns.register(timestamp_to_time::TimestampToTime);
 }
 
 /// A scalar function has a negative cost if applying it to an array and
