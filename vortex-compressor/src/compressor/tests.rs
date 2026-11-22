@@ -592,8 +592,10 @@ fn always_use_wins_immediately_without_competitors() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
@@ -616,8 +618,10 @@ fn always_use_default_competes_with_candidates(
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
@@ -636,8 +640,10 @@ fn always_use_default_is_chosen_without_valid_estimates() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
@@ -654,8 +660,10 @@ fn callback_skip_is_ignored() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
@@ -672,8 +680,10 @@ fn callback_ratio_competes_numerically() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
@@ -690,8 +700,10 @@ fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
@@ -708,8 +720,10 @@ fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
@@ -726,8 +740,10 @@ fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(winner.is_none());
     Ok(())
@@ -828,8 +844,10 @@ fn callback_always_use_overrides_pass_one_best() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
@@ -849,7 +867,7 @@ fn threshold_reflects_pass_one_best() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    compressor.rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert!(matches!(
@@ -870,7 +888,7 @@ fn threshold_is_none_when_only_prior_is_zero_bytes() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    compressor.rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     // The observing callback was invoked (outer `Some`) and `best_so_far` was `None` (inner
     // `None`) because the zero-byte sample is never stored as the best.
@@ -889,7 +907,7 @@ fn threshold_is_none_when_no_prior_scheme() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    compressor.rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert_eq!(observed, Some(None));
@@ -909,7 +927,7 @@ fn threshold_updates_from_earlier_deferred_callback() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    compressor.rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert!(matches!(
@@ -930,7 +948,7 @@ fn callbacks_observe_samples_registered_after_them() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    compressor.rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert!(matches!(
@@ -950,6 +968,71 @@ fn smaller_trial_output_replaces_an_overpromising_winner() -> VortexResult<()> {
 
     assert!(compressed.is::<Dict>());
     assert_arrays_eq!(compressed, array, &mut exec_ctx);
+    Ok(())
+}
+
+#[test]
+fn overpromising_winner_falls_back_to_next_best() -> VortexResult<()> {
+    // `OverpromisingScheme` ranks first but hands the input back, so the dictionary must win.
+    let compressor = CascadingCompressor::new(vec![&OverpromisingScheme, &IntDictScheme]);
+    let array = PrimitiveArray::from_iter((0..1024i64).map(|value| value % 4)).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let compressed = compressor.compress(&array, &mut exec_ctx)?;
+
+    assert!(compressed.is::<Dict>());
+    assert_arrays_eq!(compressed, array, &mut exec_ctx);
+    Ok(())
+}
+
+#[test]
+fn schemes_are_ranked_best_first() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![
+        &DirectRatioScheme,
+        &CallbackRatioScheme,
+        &HugeRatioScheme,
+    ]);
+    let schemes: [&'static dyn Scheme; 3] =
+        [&DirectRatioScheme, &CallbackRatioScheme, &HugeRatioScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let ranked: Vec<_> = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .map(|(scheme, _)| scheme.id())
+        .collect();
+
+    assert_eq!(
+        ranked,
+        [
+            HugeRatioScheme.id(),
+            CallbackRatioScheme.id(),
+            DirectRatioScheme.id()
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn callback_always_use_is_followed_by_schemes_ranked_before_it() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackAlwaysUseScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackAlwaysUseScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let ranked =
+        compressor.rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(matches!(
+        ranked.as_slice(),
+        [
+            (first, WinnerEstimate::AlwaysUse),
+            (second, WinnerEstimate::Score(EstimateScore::FiniteCompression(r))),
+        ] if first.id() == CallbackAlwaysUseScheme.id()
+            && second.id() == DirectRatioScheme.id()
+            && *r == 2.0
+    ));
     Ok(())
 }
 
@@ -985,8 +1068,10 @@ fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<(
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let winner = compressor
+        .rank_schemes(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?
+        .into_iter()
+        .next();
 
     assert!(matches!(
         winner,
