@@ -29,12 +29,14 @@ from .config import (
     Engine,
     Format,
     RunConfig,
+    SizeFormat,
     group_targets_by_backend,
     parse_formats_json,
+    parse_size_formats_json,
     parse_targets_json,
     resolve_axis_targets,
 )
-from .data_cache import S3DataCache, cached_dataset
+from .data_cache import S3DataCache, cached_dataset, prepare_dataset
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
 from .runner.labels import label_ingest_file, label_result_line
@@ -270,14 +272,66 @@ def prepare_data(
 
     try:
         cache = S3DataCache(s3_cache) if s3_cache else None
-        dataset = cached_dataset(benchmark, bench_opts, builder.workspace_root) if cache else None
-        restored = cache is not None and dataset is not None and cache.restore(dataset)
-        subprocess.run(cmd, check=True)
-        if cache is not None and dataset is not None and not restored:
-            cache.save(dataset)
+        dataset = cached_dataset(benchmark, bench_opts, builder.workspace_root)
+        if dataset is not None:
+            with prepare_dataset(dataset, cache=cache):
+                subprocess.run(cmd, check=True)
+        else:
+            subprocess.run(cmd, check=True)
     except (subprocess.CalledProcessError, ValueError, FileNotFoundError) as exc:
         console.print(f"[red]Data generation failed: {exc}[/red]")
         raise typer.Exit(1) from exc
+
+
+@app.command("write-size-formats")
+def write_size_formats(
+    benchmark: Annotated[Benchmark, typer.Argument(help="Benchmark suite whose data to write")],
+    formats_json: Annotated[
+        str,
+        typer.Option("--formats-json", help="Size-only formats to write, as a JSON array"),
+    ],
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
+    options: Annotated[list[str] | None, typer.Option("--opt", help="Benchmark-specific options")] = None,
+) -> None:
+    """Write formats that no query reads, only to record their file sizes.
+
+    Run it after `prepare-data`: each format is written from the benchmark's base Parquet files.
+    """
+    try:
+        formats = parse_size_formats_json(formats_json)
+        bench_opts = parse_options(options)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    opt_args = [arg for key, value in bench_opts.items() for arg in ("--opt", f"{key}={value}")]
+    builder = BenchmarkBuilder(verbose=verbose)
+    commands = []
+    data_gen_formats = [fmt.value for fmt in formats if fmt is not SizeFormat.LANCE]
+    if data_gen_formats:
+        commands.append(
+            [
+                str(builder.get_data_generator_path()),
+                benchmark.value,
+                "--size-formats",
+                ",".join(data_gen_formats),
+                *opt_args,
+            ]
+        )
+    if SizeFormat.LANCE in formats:
+        commands.append([str(builder.get_binary_path(Engine.LANCE)), benchmark.value, "--data-only", *opt_args])
+
+    for cmd in commands:
+        if not Path(cmd[0]).exists():
+            console.print(f"[red]Binary not found: {cmd[0]}[/red]")
+            raise typer.Exit(1)
+        if verbose:
+            console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+        try:
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as exc:
+            console.print(f"[red]Writing size-only formats failed: {exc}[/red]")
+            raise typer.Exit(1) from exc
 
 
 @app.command("matrix")
@@ -429,6 +483,8 @@ def run(
                         write_result_line(line, ctx.write_raw_json, compatibility_file)
 
                     try:
+                        # Before the first cache drop, so the first query reads cold files.
+                        executor.write_data(benchmark, bench_opts)
                         query_ids = executor.list_queries(benchmark, query_list, exclude_list)
                         for i, query_id in enumerate(query_ids, start=1):
                             query_results.clear()
@@ -491,6 +547,8 @@ def run(
 
     metadata = ctx.metadata
     console.print(f"\n[green]Results saved to run: {metadata.run_id}[/green]")
+    if metadata.partial:
+        console.print("[yellow]Run is partial; 'latest' was not updated.[/yellow]")
 
     # Show comparison table if we have multiple engine:format combinations
     df = store.load_results(metadata.run_id)

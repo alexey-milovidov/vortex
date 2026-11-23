@@ -14,7 +14,15 @@ from bench_orchestrator.ci_matrix.catalog import CATALOG
 from bench_orchestrator.ci_matrix.model import Catalog, Coverage
 from bench_orchestrator.ci_matrix.render import render_matrix
 from bench_orchestrator.ci_matrix.targets import TargetSet
-from bench_orchestrator.config import BenchmarkTarget, Engine, Format, Integration, ScanEngine, parse_targets_json
+from bench_orchestrator.config import (
+    BenchmarkTarget,
+    Engine,
+    Format,
+    Integration,
+    ScanEngine,
+    SizeFormat,
+    parse_targets_json,
+)
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -75,7 +83,6 @@ EXPECTED_GROUPS = {
                 "duckdb-parquet",
                 "duckdb-vortex",
                 "datafusion-vortex-file-v1",
-                "datafusion-vortex-datasource-v1",
                 "duckdb-vortex-file-v1",
             )
         ),
@@ -84,6 +91,8 @@ EXPECTED_GROUPS = {
     ),
 }
 SCAN_SUFFIXES = ("datafusion-file-v1", "datafusion-datasource-v1", "duckdb-file-v1")
+# Nightly skips DataFusion datasource v1, see `NIGHTLY_SKIP_SCANS`.
+NIGHTLY_SCAN_SUFFIXES = ("datafusion-file-v1", "duckdb-file-v1")
 
 
 def _entries(preset: str) -> list[dict[str, object]]:
@@ -126,6 +135,7 @@ ALL_SCANS = {
     ("duckdb", "vortex [file, v2]"),
     ("duckdb", "vortex [file, v1]"),
 }
+NIGHTLY_SCANS = ALL_SCANS - {("datafusion", "vortex [datasource, v1]")}
 DEFAULT_SCANS = {
     ("datafusion", "parquet"),
     ("datafusion", "vortex [file, v2]"),
@@ -149,14 +159,16 @@ def test_matrix_presets(preset: str, expected_groups: tuple[str, ...]) -> None:
 def test_every_scan_runs_on_a_machine_of_its_own(preset: str) -> None:
     groups = _groups(preset)
     entries = {entry["id"]: entry for entry in _entries(preset)}
+    suffixes = NIGHTLY_SCAN_SUFFIXES if preset == "nightly" else SCAN_SUFFIXES
+    scans = NIGHTLY_SCANS if preset == "nightly" else ALL_SCANS
 
-    assert groups["tpch-nvme"]["ids"] == ["tpch-nvme", *(f"tpch-nvme-{suffix}" for suffix in SCAN_SUFFIXES)]
-    assert ALL_SCANS <= _group_targets(preset)["tpch-nvme"]
+    assert groups["tpch-nvme"]["ids"] == ["tpch-nvme", *(f"tpch-nvme-{suffix}" for suffix in suffixes)]
+    assert scans <= _group_targets(preset)["tpch-nvme"]
     # The default entry keeps the case's id and history and records its data; a scan's entry
     # generates only the Vortex files it reads.
     assert entries["tpch-nvme"]["records_data"] is True
     assert ("datafusion", "vortex [file, v1]") not in _targets(entries["tpch-nvme"])
-    for suffix in SCAN_SUFFIXES:
+    for suffix in suffixes:
         entry = entries[f"tpch-nvme-{suffix}"]
         assert entry["group"] == "tpch-nvme"
         assert len(_targets(entry)) == 1
@@ -192,27 +204,38 @@ def test_every_s3_entry_has_its_own_remote_key(preset: str) -> None:
     assert len(keys) == len(set(keys))
 
 
+@pytest.mark.parametrize("preset", ["develop", "nightly", "pr-full", "pr-all"])
+def test_only_s3_entries_generate_parquet_with_large_row_groups(preset: str) -> None:
+    entries = _entries(preset)
+
+    assert any("remote_key" in entry for entry in entries)
+    for entry in entries:
+        if "remote_key" in entry:
+            assert entry["row_group_rows"] == "1048576"
+        else:
+            assert "row_group_rows" not in entry
+
+
 def test_tpcds_sf100_runs_one_target_per_job() -> None:
     nightly = [
         entry for entry in _entries("nightly") if str(entry["id"]).startswith("tpcds-") and "-100-" in str(entry["id"])
     ]
 
-    assert len(nightly) == 14
+    assert len(nightly) == 12
     assert all(len(_targets(entry)) == 1 for entry in nightly)
-    assert {target for entry in nightly for target in _targets(entry)} == ALL_SCANS
+    assert {target for entry in nightly for target in _targets(entry)} == NIGHTLY_SCANS
     s3_keys = [entry["remote_key"] for entry in nightly if "remote_key" in entry]
-    assert len(s3_keys) == len(set(s3_keys)) == 7
+    assert len(s3_keys) == len(set(s3_keys)) == 6
 
 
-def test_nightly_runs_every_scan() -> None:
+def test_nightly_runs_every_scan_except_datasource_v1() -> None:
     groups = _group_targets("nightly")
 
-    assert groups["tpch-s3"] == ALL_SCANS
+    assert groups["tpch-s3"] == NIGHTLY_SCANS
     # Nested TPC-H reads list layouts, which the v2 scan cannot read yet.
     assert groups["tpch-nested-s3"] == {
         ("datafusion", "parquet"),
         ("datafusion", "vortex [file, v1]"),
-        ("datafusion", "vortex [datasource, v1]"),
         ("duckdb", "parquet"),
         ("duckdb", "vortex [file, v1]"),
     }
@@ -240,18 +263,26 @@ def test_only_pr_scan_adds_scans_to_pull_requests(preset: str) -> None:
     assert all(entry["id"] == entry["group"] for entry in _entries(preset))
 
 
-def test_nightly_runs_every_valid_scan() -> None:
+def test_nightly_runs_every_valid_scan_except_datasource_v1() -> None:
     for benchmark_id, targets in _group_targets("nightly").items():
         if "-100-" in benchmark_id:
             continue
         engines = {engine for engine, fmt in targets if fmt.startswith("vortex [")}
         scans = {(engine, fmt) for engine, fmt in targets if fmt.startswith("vortex [")}
-        expected = {(engine, "vortex [file, v1]") for engine in engines} | (
-            {("datafusion", "vortex [datasource, v1]")} if "datafusion" in engines else set()
-        )
+        expected = {(engine, "vortex [file, v1]") for engine in engines}
         if not benchmark_id.startswith("tpch-nested"):
             expected |= {(engine, "vortex [file, v2]") for engine in engines}
         assert scans == expected, benchmark_id
+
+
+@pytest.mark.parametrize("preset", ["develop", "nightly", "pr-full", "pr-all"])
+def test_s3_local_dir_names_the_generated_scale_factor(preset: str) -> None:
+    # prepare-data writes under the scale factor exactly as passed, so `100` and `100.0` differ.
+    for entry in _entries(preset):
+        if "local_dir" not in entry or "scale_factor" not in entry:
+            continue
+        numbers = [part for part in str(entry["local_dir"]).split("/") if part.replace(".", "", 1).isdigit()]
+        assert numbers in ([], [entry["scale_factor"]]), entry["id"]
 
 
 def test_scan_targets_round_trip_through_targets_json() -> None:
@@ -315,6 +346,41 @@ def test_matrix_entries_name_their_data_directory() -> None:
 
     assert entries["clickbench-nvme"]["dataset_dir"] == "clickbench_partitioned"
     assert entries["tpch-nvme"]["dataset_dir"] == "tpch"
+
+
+@pytest.mark.parametrize("preset", tuple(MATRIX_PRESETS))
+def test_only_develop_tpcds_sf1_writes_size_only_formats(preset: str) -> None:
+    writers = {entry["id"]: entry["size_formats"] for entry in _entries(preset) if entry["size_formats"]}
+
+    if preset == "develop":
+        assert writers == {"tpcds-nvme": ["arrow-ipc", "parquet-snappy"]}
+    else:
+        assert writers == {}
+
+
+def test_develop_tpcds_sf1_queries_lance() -> None:
+    entry = {entry["id"]: entry for entry in _entries("develop")}["tpcds-nvme"]
+    targets = {(target["engine"], target["format"]) for target in entry["targets"]}
+
+    assert ("datafusion", "lance") in targets
+    assert "lance" not in entry["data_formats"]
+
+
+def test_resolver_rejects_a_size_only_format_that_a_target_reads() -> None:
+    benchmark = replace(
+        CATALOG.benchmarks[0],
+        id="reads-lance",
+        runs={
+            "develop": Coverage(
+                TargetSet((BenchmarkTarget(Engine.DATAFUSION, Format.LANCE),)),
+                size_formats=(SizeFormat.LANCE,),
+            )
+        },
+    )
+    catalog = Catalog(presets=CATALOG.presets, benchmarks=(benchmark,))
+
+    with pytest.raises(ValueError, match="reads 'lance'.*needs no size-only write"):
+        _ = render_matrix("develop", catalog)
 
 
 def test_matrix_command() -> None:
