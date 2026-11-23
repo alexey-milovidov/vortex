@@ -3088,3 +3088,121 @@ fn test_fallible_boolean_rhs_is_residual(
     assert!(!converts(&expr, &batch.schema())?);
     Ok(())
 }
+
+/// A stand-in for `try_variant_get` / `variant_get` of datafusion-variant, which returns the
+/// type its third argument names. Only its name and return type matter to the conversion.
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct TestVariantGet {
+    name: &'static str,
+    signature: datafusion_expr::Signature,
+}
+
+impl datafusion_expr::ScalarUDFImpl for TestVariantGet {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn signature(&self) -> &datafusion_expr::Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> DFResult<DataType> {
+        Ok(DataType::Utf8View)
+    }
+
+    fn invoke_with_args(
+        &self,
+        _args: datafusion_expr::ScalarFunctionArgs,
+    ) -> DFResult<datafusion_expr::ColumnarValue> {
+        Err(exec_datafusion_err!(
+            "the conversion never invokes {}",
+            self.name
+        ))
+    }
+}
+
+/// A schema with one Variant column, `data`, and `fn_name(data, path, 'VARCHAR')` over it.
+fn variant_get_expr_named(
+    fn_name: &'static str,
+    path: &str,
+) -> anyhow::Result<(Schema, Arc<dyn PhysicalExpr>)> {
+    let session = VortexSession::default();
+    let schema =
+        Schema::new(vec![session.arrow().to_arrow_field(
+            "data",
+            &DType::Variant(Nullability::NonNullable),
+        )?]);
+    let function = TestVariantGet {
+        name: fn_name,
+        signature: datafusion_expr::Signature::any(3, datafusion_expr::Volatility::Immutable),
+    };
+    let literal = |value: &str| -> Arc<dyn PhysicalExpr> {
+        Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
+            value.to_string(),
+        ))))
+    };
+    let expr = Arc::new(ScalarFunctionExpr::try_new(
+        Arc::new(ScalarUDF::from(function)),
+        vec![
+            Arc::new(df_expr::Column::new("data", 0)),
+            literal(path),
+            literal("VARCHAR"),
+        ],
+        &schema,
+        Arc::new(ConfigOptions::new()),
+    )?);
+    Ok((schema, expr))
+}
+
+/// A schema with one Variant column, `data`, and `try_variant_get(data, path, 'VARCHAR')` over it.
+fn variant_get_expr(path: &str) -> anyhow::Result<(Schema, Arc<dyn PhysicalExpr>)> {
+    variant_get_expr_named("try_variant_get", path)
+}
+
+#[test]
+fn test_variant_get_converts_to_native_extraction() -> anyhow::Result<()> {
+    let (schema, expr) = variant_get_expr("$.commit.collection")?;
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&expr, &schema)?,
+        Some(variant_get(
+            get_item("data", root()),
+            VariantPath::new([
+                VariantPathElement::field("commit"),
+                VariantPathElement::field("collection"),
+            ]),
+            Some(DType::Utf8(Nullability::Nullable)),
+        )),
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::bare_path("commit.collection")]
+#[case::list_index("$.posts[0]")]
+#[case::quoted_field("$['a.b']")]
+#[case::empty_field("$.commit..collection")]
+#[case::root("$")]
+#[case::root_dot("$.")]
+#[case::empty("")]
+fn test_variant_get_keeps_other_paths_in_datafusion(#[case] path: &str) -> anyhow::Result<()> {
+    let (schema, expr) = variant_get_expr(path)?;
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&expr, &schema)?,
+        None,
+    );
+    Ok(())
+}
+
+#[test]
+fn test_strict_variant_get_stays_in_datafusion() -> anyhow::Result<()> {
+    let (schema, expr) = variant_get_expr_named("variant_get", "$.commit.collection")?;
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&expr, &schema)?,
+        None,
+    );
+    Ok(())
+}
+
