@@ -108,6 +108,9 @@
   "vortex-elias-fano": {
     "unary": 20
   },
+  "vortex-expr": {
+    "stats_rewrite": 8
+  },
   "vortex-fastlanes": {
     "bitpack_blocked": 0,
     "bitpack_blocked_decompress": 0,
