@@ -34,9 +34,12 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::mask::Mask;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_error::VortexResult;
@@ -45,6 +48,8 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::StringEscape;
+
+use crate::variant_pack::VariantPack;
 
 /// How many lazy layers `variant_get` unwraps from its input before it extracts row by row.
 const MAX_CANONICALIZE_DEPTH: usize = 8;
@@ -221,6 +226,66 @@ impl ScalarFnVTable for VariantGet {
             builder.append_n_scalars(&variant_get_scalar(&scalar, options, &dtype)?, 1)?;
         }
         builder.finish_into_variant().map(IntoArray::into_array)
+    }
+
+    /// Reads a shredded path from the shredded child of a [`VariantPack`] input, leaving its
+    /// core storage unread.
+    fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
+        let input = node.child(0);
+        let Some(pack) = input
+            .scalar_fn()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<VariantPack>())
+        else {
+            return Ok(None);
+        };
+        let core = input.child(0);
+        let mut current = input.child(1);
+        let mut path = options.path().elements();
+        // Whether `current` is below the shredded child itself. Only the shredded child can
+        // have left values in the core storage, so only reading it needs it to be complete.
+        let mut descended = false;
+
+        loop {
+            let dtype = current.node_dtype()?;
+            match (&dtype, path.split_first()) {
+                // A shredded Variant holds the rest of the path itself.
+                (DType::Variant(_), _) if descended => {
+                    let rest = VariantGetOptions::new(
+                        VariantPath::new(path.iter().cloned()),
+                        options.dtype().cloned(),
+                    );
+                    return node.new_node(VariantGet.bind(rest), &[current]).map(Some);
+                }
+                (DType::Struct(fields, _), Some((VariantPathElement::Field(name), rest))) => {
+                    if fields.find(name.as_ref()).is_none() {
+                        // A field that was not shredded is only in the core storage.
+                        return if descended {
+                            Ok(None)
+                        } else {
+                            node.new_node(VariantGet.bind(options.clone()), &[core])
+                                .map(Some)
+                        };
+                    }
+                    if !descended && !pack.complete() {
+                        return Ok(None);
+                    }
+                    current = current.new_node(GetItem.bind(name.clone()), &[current.clone()])?;
+                    path = rest;
+                    descended = true;
+                }
+                // The end of the path at a typed value of the requested dtype.
+                (dtype, None)
+                    if options.dtype().is_some_and(|requested| {
+                        !requested.is_variant() && dtype.eq_ignore_nullability(requested)
+                    }) && (descended || (pack.complete() && !pack.shredded_validity())) =>
+                {
+                    return node
+                        .new_node(Cast.bind(node.node_dtype()?), &[current])
+                        .map(Some);
+                }
+                _ => return Ok(None),
+            }
+        }
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -606,6 +671,7 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Chunked;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
@@ -628,6 +694,7 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
@@ -639,6 +706,7 @@ mod tests {
     use crate::variant_get::VariantGetOptions;
     use crate::variant_get::VariantPath;
     use crate::variant_get::VariantPathElement;
+    use crate::variant_pack::VariantPack;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -1320,6 +1388,46 @@ mod tests {
             assert!(!elems[1].is_null());
             assert_eq!(elems[1].as_variant().is_variant_null(), Some(true));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_root_struct_respects_variant_pack_shredded_validity() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let core = variant_rows([
+            Scalar::variant(variant_object([])),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
+        let shredded = StructArray::try_new(
+            FieldNames::from_iter(["a"]),
+            vec![PrimitiveArray::from_option_iter([Some(10i32), None]).into_array()],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let validity = BoolArray::from_iter([true, false]).into_array();
+        let packed =
+            VariantPack::try_new_with_validity(core, shredded, validity, true)?.into_array();
+
+        let target = DType::struct_(
+            [("a", DType::Primitive(PType::I32, Nullability::Nullable))],
+            Nullability::Nullable,
+        );
+        let expr = variant_get(root(), VariantPath::root(), Some(target));
+        let result = packed
+            .apply(&expr)?
+            .optimize_ctx(&ctx)?
+            .execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is_valid(0, &mut ctx)?);
+        assert_eq!(
+            result
+                .execute_scalar(0, &mut ctx)?
+                .as_struct()
+                .field("a")
+                .and_then(|s| s.as_primitive().typed_value::<i32>()),
+            Some(10),
+        );
+        assert!(result.is_invalid(1, &mut ctx)?);
         Ok(())
     }
 }

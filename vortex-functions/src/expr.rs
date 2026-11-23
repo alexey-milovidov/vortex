@@ -55,6 +55,8 @@ use crate::strpos::Strpos;
 use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
+use crate::variant_pack::VariantPack;
+use crate::variant_pack::VariantPackOptions;
 use crate::zip::Zip;
 
 /// Creates a CASE WHEN expression with one WHEN/THEN pair and an ELSE value.
@@ -642,6 +644,28 @@ pub fn bound_variant_get(
     VariantGet
         .try_new_bound_expr(VariantGetOptions::new(path.into(), dtype), [child])
         .vortex_expect("variant-get expressions require a Variant child")
+}
+
+/// Creates a Variant expression from core storage and its shredded child.
+///
+/// `complete` says whether every shredded path is absent from `core`; see
+/// [`VariantPackOptions::complete`].
+pub fn variant_pack(core: Expression, shredded: Expression, complete: bool) -> Expression {
+    VariantPack.new_expr(VariantPackOptions::new(complete), vec![core, shredded])
+}
+
+/// Creates a Variant expression from core storage, a non-nullable shredded struct, and the
+/// struct's validity.
+pub fn variant_pack_with_validity(
+    core: Expression,
+    shredded: Expression,
+    validity: Expression,
+    complete: bool,
+) -> Expression {
+    VariantPack.new_expr(
+        VariantPackOptions::with_shredded_validity(complete),
+        vec![core, shredded, validity],
+    )
 }
 
 // ---- Like ----

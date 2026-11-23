@@ -43,6 +43,7 @@ pub mod replace_time_zone;
 pub mod stat;
 pub mod strpos;
 pub mod variant_get;
+pub mod variant_pack;
 pub mod zip;
 
 #[cfg(test)]
@@ -68,6 +69,7 @@ pub fn initialize(session: &VortexSession) {
     scalar_fns.register(replace_time_zone::ReplaceTimeZone);
     scalar_fns.register(stat::StatFn);
     scalar_fns.register(strpos::Strpos);
+    scalar_fns.register(variant_pack::VariantPack);
 }
 
 /// A scalar function has a negative cost if applying it to an array and
