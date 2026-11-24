@@ -34,7 +34,7 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProviderExt;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -52,7 +52,6 @@ use crate::sum::accumulate_primitive;
 use crate::sum::checked_add_sum_states;
 use crate::sum::make_zero_state;
 use crate::sum::multiply_constant;
-use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 
 const SUM_FIELD: &str = "sum";
 const IS_OVERFLOW_FIELD: &str = "is_overflow";

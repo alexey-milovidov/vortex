@@ -74,11 +74,11 @@ pub fn stat_expr(
 
 #[cfg(test)]
 mod tests {
+    use vortex_aggregates::max::Max;
+    use vortex_aggregates::min::Min;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::max::Max;
-    use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::StructFields;
