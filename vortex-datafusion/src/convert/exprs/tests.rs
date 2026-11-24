@@ -27,6 +27,7 @@ use arrow_array::types::UInt32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
+use arrow_schema::Metadata;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
@@ -923,13 +924,10 @@ fn test_literal_rejected_by_importer_is_unsupported() -> anyhow::Result<()> {
     session
         .arrow()
         .register_importer(Arc::new(ValueRejectingImporter));
-    let field = Field::new("v", DataType::Int32, false).with_metadata(
-        [(
-            EXTENSION_TYPE_NAME_KEY.to_string(),
-            REJECT_VALUE_EXTENSION_NAME.to_string(),
-        )]
-        .into(),
-    );
+    let field = Field::new("v", DataType::Int32, false).with_metadata(Metadata::from_iter([(
+        EXTENSION_TYPE_NAME_KEY.to_string(),
+        REJECT_VALUE_EXTENSION_NAME.to_string(),
+    )]));
     let literal = Arc::new(df_expr::Literal::new_with_metadata(
         ScalarValue::Int32(Some(1)),
         Some(FieldMetadata::new_from_field(&field)),
@@ -955,10 +953,9 @@ fn test_comparison_literal_metadata_is_not_replaced(
         value.clone(),
         Some(FieldMetadata::new_from_field(&field)),
     )) as Arc<dyn PhysicalExpr>;
-    field.metadata_mut().insert(
-        "ARROW:extension:name".into(),
-        "unregistered.extension".into(),
-    );
+    field
+        .metadata_mut()
+        .insert("ARROW:extension:name", "unregistered.extension");
     let invalid = Arc::new(df_expr::Literal::new_with_metadata(
         value,
         Some(FieldMetadata::new_from_field(&field)),
@@ -993,10 +990,9 @@ fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> 
 
     let mut literal_field = field;
     literal_field.metadata_mut().remove(EXTENSION_TYPE_NAME_KEY);
-    literal_field.metadata_mut().insert(
-        EXTENSION_TYPE_METADATA_KEY.into(),
-        "unrelated payload".into(),
-    );
+    literal_field
+        .metadata_mut()
+        .insert(EXTENSION_TYPE_METADATA_KEY, "unrelated payload");
     let literal = df_expr::Literal::new_with_metadata(
         ScalarValue::FixedSizeBinary(16, Some(bytes.to_vec())),
         Some(FieldMetadata::new_from_field(&literal_field)),
