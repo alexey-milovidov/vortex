@@ -21,7 +21,6 @@ use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
-use vortex_array::scalar_fn::builtin::operators::NullOrder;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -529,8 +528,6 @@ pub fn in_list(needle: Expression, list: Expression) -> Expression {
 
 /// Creates `needle IN (list)` with SQL null semantics, where the needle and the elements compare
 /// floats in `compare_mode`. See [`in_list`].
-///
-/// Membership uses only equality, so [`CompareMode::null_order`] has no effect.
 pub fn in_list_with_mode(
     needle: Expression,
     list: Expression,
@@ -541,7 +538,7 @@ pub fn in_list_with_mode(
         needle,
         ListContainsOptions {
             sql_null_semantics: true,
-            compare_mode: compare_mode.with_null_order(NullOrder::First),
+            compare_mode,
         },
     )
 }

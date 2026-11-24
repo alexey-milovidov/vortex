@@ -39,7 +39,6 @@ use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
-use vortex_array::scalar_fn::builtin::operators::NullOrder;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -203,10 +202,7 @@ fn compare_falsify<P: NonNanProof>(
 
     // The statistics are bounds in total order. Each other float order is a coarser order that
     // total order refines, so these bounds stay valid when the stat comparisons use the mode of
-    // the predicate. Nested nulls that order last do not refine it, so they get no rewrite.
-    if options.compare_mode().null_order() != NullOrder::First {
-        return Ok(None);
-    }
+    // the predicate.
     let cmp = |operator, a, b| compare_with_mode(operator, options.compare_mode(), a, b);
 
     Ok(match options.operator() {
