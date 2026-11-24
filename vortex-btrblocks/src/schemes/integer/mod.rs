@@ -15,7 +15,6 @@ mod zigzag;
 #[cfg(feature = "pco")]
 mod pco;
 
-pub(crate) use bitpacking::BITPACKING_V1;
 pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
 pub(crate) use for_::FOR_V1;
