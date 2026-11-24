@@ -109,6 +109,7 @@
     "unary": 20
   },
   "vortex-fastlanes": {
+    "affine_decode": 0,
     "bitpack_compare": 2,
     "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
